@@ -22,3 +22,4 @@ export type Entry = {
 
 export type ItemType = '입찰내역' | '견적조건' | '공통사항';
 export type TypeFilter = '전체' | ItemType;
+

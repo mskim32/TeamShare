@@ -298,7 +298,7 @@ export default function Page() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // 초기 로드 + 첨부 링크 서명
+  // 초기 로드 + 첨부 링크 서명 - 인증된 사용자만
   useEffect(() => {
     // 데모 모드에서는 로컬 데이터 사용
     if (supabaseUrl === 'https://demo.supabase.co') {
@@ -306,7 +306,13 @@ export default function Page() {
       return;
     }
     
-    console.log('Supabase에서 데이터 로딩 중...', { supabaseUrl, TEAM_ID });
+    // 인증되지 않은 사용자는 데이터 로드하지 않음
+    if (!userEmail) {
+      console.log('인증되지 않은 사용자: 데이터 로드 건너뜀');
+      return;
+    }
+    
+    console.log('Supabase에서 데이터 로딩 중...', { supabaseUrl, TEAM_ID, userEmail });
     
     supabase.from('check_entries')
       .select('*')
@@ -325,7 +331,7 @@ export default function Page() {
         const map = await createSignedUrls(keys);
         setSignMap(map);
       });
-  }, []);
+  }, [userEmail]); // userEmail이 변경될 때마다 실행
 
   // 실시간 반영
   useEffect(() => {
@@ -335,7 +341,13 @@ export default function Page() {
       return;
     }
     
-    console.log('실시간 구독 시작:', `entries-${TEAM_ID}`);
+    // 인증되지 않은 사용자는 실시간 구독하지 않음
+    if (!userEmail) {
+      console.log('인증되지 않은 사용자: 실시간 구독 건너뜀');
+      return;
+    }
+    
+    console.log('실시간 구독 시작:', `entries-${TEAM_ID}`, { userEmail });
     
     const ch = supabase.channel(`entries-${TEAM_ID}`)
       .on('postgres_changes',
@@ -362,7 +374,7 @@ export default function Page() {
         })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, []);
+  }, [userEmail]); // userEmail이 변경될 때마다 실행
 
   // RHF 폼
   const { register, handleSubmit, reset, formState:{errors,isSubmitting}, setValue, watch } =
@@ -390,18 +402,55 @@ export default function Page() {
   const handleCancelEdit = () => {
     setEditingEntry(null);
     setIsEditMode(false);
-    reset({ item_type: '외주계약' });
+    
+    // 모든 폼 필드 초기화
+    reset({
+      category: '',
+      item_type: '외주계약',
+      review_text: '',
+      shared_at: '',
+      author_name: '',
+      note: '',
+      link_url: ''
+    });
+    
+    // 첨부파일 초기화
+    setSelectedFiles([]);
+    
+    // 파일 입력 필드 초기화
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   // 폼 데이터 초기화
   const handleResetForm = () => {
     console.log('데이터 새로고침 버튼 클릭됨');
-    reset({ item_type: '외주계약' });
+    
+    // 모든 폼 필드 초기화
+    reset({
+      category: '',
+      item_type: '외주계약',
+      review_text: '',
+      shared_at: '',
+      author_name: '',
+      note: '',
+      link_url: ''
+    });
+    
+    // 수정 모드 해제
     setEditingEntry(null);
     setIsEditMode(false);
+    
+    // 첨부파일 초기화
     setSelectedFiles([]);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    console.log('폼 초기화 완료');
+    
+    // 파일 입력 필드 초기화
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    
+    console.log('폼 초기화 완료 - 모든 필드가 초기화되었습니다');
   };
 
   // 드래그 앤 드롭 핸들러
@@ -486,7 +535,15 @@ export default function Page() {
         setRows(prev => [newEntry, ...prev]);
       }
       
-      reset({ item_type: values.item_type as any });
+      reset({
+        category: '',
+        item_type: '외주계약',
+        review_text: '',
+        shared_at: '',
+        author_name: '',
+        note: '',
+        link_url: ''
+      });
       setSelectedFiles([]);
       if (fileInputRef.current) fileInputRef.current.value = '';
       
@@ -572,7 +629,15 @@ export default function Page() {
       }
     }
     
-    reset({ item_type: values.item_type as any });
+    reset({
+      category: '',
+      item_type: '외주계약',
+      review_text: '',
+      shared_at: '',
+      author_name: '',
+      note: '',
+      link_url: ''
+    });
     setSelectedFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
@@ -762,117 +827,135 @@ export default function Page() {
         <p className="text-xs text-neutral-500 mt-2">* 파일은 개당 20MB 이하 · 민감자료는 업로드 전 권한 확인 🙏</p>
       </section>
 
-      {/* 검색/필터 */}
-      <section className="flex flex-col md:flex-row gap-3 items-start md:items-center p-4 rounded-2xl border bg-white shadow-sm">
-        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="검색(공종/구분/검토사항/작성자/비고)"
-               className="w-full md:w-1/2 h-10 rounded-xl border px-3" />
-        <div className="flex items-center gap-2 text-sm flex-wrap">
-          {(['전체','외주계약','외주입찰','견적조건','내역검토','품의/보고','기타공지'] as const).map(t=>
-            <button key={t} onClick={()=>setTypeFilter(t)}
-              className={clsx('flex items-center gap-2 px-3 py-1 rounded-full border text-xs',
-                t===typeFilter ? 'bg-neutral-900 text-white' : 'bg-white')}>
-              {t !== '전체' && (
-                <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-xs ${getItemTypeIcon(t).bgColor} ${getItemTypeIcon(t).color}`}>
-                  {getItemTypeIcon(t).icon}
-                </span>
-              )}
-              {t}
-            </button>)}
-        </div>
-      </section>
-
-
-      {/* 테이블 */}
-      <section className="rounded-2xl border bg-white shadow-sm overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-neutral-50 sticky top-0">
-          <tr>
-            {['구분','공종','검토사항','공유일자','작성/공유자','비고','Link','첨부'].map(h=>(
-              <th key={h} className="p-3 border-b text-left font-medium">{h}</th>
-            ))}
-          </tr>
-          </thead>
-          <tbody>
-          {filtered.map(r=>(
-            <tr 
-              key={r.id} 
-              className="hover:bg-neutral-50 align-top cursor-pointer"
-              onClick={() => handleRowClick(r)}
-            >
-              <td className="p-3 border-b min-w-[100px]">
-                <div className="flex items-center gap-2">
-                  <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs ${getItemTypeIcon(r.item_type).bgColor} ${getItemTypeIcon(r.item_type).color}`}>
-                    {getItemTypeIcon(r.item_type).icon}
+      {/* 검색/필터 - 인증된 사용자만 */}
+      {userEmail && (
+        <section className="flex flex-col md:flex-row gap-3 items-start md:items-center p-4 rounded-2xl border bg-white shadow-sm">
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="검색(공종/구분/검토사항/작성자/비고)"
+                 className="w-full md:w-1/2 h-10 rounded-xl border px-3" />
+          <div className="flex items-center gap-2 text-sm flex-wrap">
+            {(['전체','외주계약','외주입찰','견적조건','내역검토','품의/보고','기타공지'] as const).map(t=>
+              <button key={t} onClick={()=>setTypeFilter(t)}
+                className={clsx('flex items-center gap-2 px-3 py-1 rounded-full border text-xs',
+                  t===typeFilter ? 'bg-neutral-900 text-white' : 'bg-white')}>
+                {t !== '전체' && (
+                  <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-xs ${getItemTypeIcon(t).bgColor} ${getItemTypeIcon(t).color}`}>
+                    {getItemTypeIcon(t).icon}
                   </span>
-                  <span className="text-sm font-medium">{r.item_type}</span>
-                </div>
-              </td>
-              <td className="p-3 border-b min-w-[120px]">{r.category}</td>
-              <td className="p-3 border-b whitespace-pre-wrap min-w-[200px] max-w-[300px]">{r.review_text}</td>
-              <td className="p-3 border-b min-w-[100px]">{r.shared_at ?? ''}</td>
-              <td className="p-3 border-b min-w-[120px]">{r.author_name ?? ''}</td>
-              <td className="p-3 border-b min-w-[150px]">{r.note ?? ''}</td>
-              <td className="p-3 border-b min-w-[80px]">{r.link_url ? <a className="underline" href={r.link_url} target="_blank" onClick={(e) => e.stopPropagation()}>열기</a> : ''}</td>
-              <td className="p-3 border-b min-w-[150px]">
-                {r.attachments?.length ? (
-                  <ul className="space-y-1">
-                    {r.attachments.map(a=>{
-                      const url = signMap[a.key];
-                      const isImage = isImageFile(a.name);
-                      return (
-                        <li key={a.key} className="flex items-center gap-2 relative">
-                          {url ? (
-                            <div className="relative">
-                              <a 
-                                className="underline text-blue-600 flex items-center gap-1" 
-                                href={url} 
-                                target="_blank" 
-                                rel="noreferrer" 
-                                onClick={(e) => e.stopPropagation()}
-                                onMouseEnter={() => isImage && setHoveredImage(url)}
-                                onMouseLeave={() => setHoveredImage(null)}
-                              >
-                                {isImage && (
-                                  <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                  </svg>
-                                )}
-                                {a.name}
-                              </a>
-                              
-                              {/* 이미지 미리보기 툴팁 */}
-                              {hoveredImage === url && isImage && (
-                                <div className="absolute z-50 top-full left-0 mt-2 p-2 bg-white border rounded-lg shadow-lg max-w-sm">
-                                  <img 
-                                    src={url} 
-                                    alt={a.name}
-                                    className="max-w-xs max-h-64 object-contain rounded"
-                                    onError={(e) => {
-                                      e.currentTarget.style.display = 'none';
-                                    }}
-                                  />
-                                  <p className="text-xs text-gray-600 mt-1 text-center">{a.name}</p>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <button onClick={(e) => { e.stopPropagation(); refreshLink(a.key); }} className="underline">링크 갱신</button>
-                          )}
-                          <span className="text-xs text-neutral-400">{formatSize(a.size)}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : <span className="text-neutral-400">-</span>}
-              </td>
+                )}
+                {t}
+              </button>)}
+          </div>
+        </section>
+      )}
+
+      {/* 테이블 - 인증된 사용자만 */}
+      {userEmail ? (
+        <section className="rounded-2xl border bg-white shadow-sm overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-neutral-50 sticky top-0">
+            <tr>
+              {['구분','공종','검토사항','공유일자','작성/공유자','비고','Link','첨부'].map(h=>(
+                <th key={h} className="p-3 border-b text-left font-medium">{h}</th>
+              ))}
             </tr>
-          ))}
-          {filtered.length===0 && (
-            <tr><td colSpan={8} className="p-8 text-center text-neutral-400">데이터가 없어요. 하나 추가해볼까요? 😎</td></tr>
-          )}
-          </tbody>
-        </table>
-      </section>
+            </thead>
+            <tbody>
+            {filtered.map(r=>(
+              <tr 
+                key={r.id} 
+                className="hover:bg-neutral-50 align-top cursor-pointer"
+                onClick={() => handleRowClick(r)}
+              >
+                <td className="p-3 border-b min-w-[100px]">
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs ${getItemTypeIcon(r.item_type).bgColor} ${getItemTypeIcon(r.item_type).color}`}>
+                      {getItemTypeIcon(r.item_type).icon}
+                    </span>
+                    <span className="text-sm font-medium">{r.item_type}</span>
+                  </div>
+                </td>
+                <td className="p-3 border-b min-w-[120px]">{r.category}</td>
+                <td className="p-3 border-b whitespace-pre-wrap min-w-[200px] max-w-[300px]">{r.review_text}</td>
+                <td className="p-3 border-b min-w-[100px]">{r.shared_at ?? ''}</td>
+                <td className="p-3 border-b min-w-[120px]">{r.author_name ?? ''}</td>
+                <td className="p-3 border-b min-w-[150px]">{r.note ?? ''}</td>
+                <td className="p-3 border-b min-w-[80px]">{r.link_url ? <a className="underline" href={r.link_url} target="_blank" onClick={(e) => e.stopPropagation()}>열기</a> : ''}</td>
+                <td className="p-3 border-b min-w-[150px]">
+                  {r.attachments?.length ? (
+                    <ul className="space-y-1">
+                      {r.attachments.map(a=>{
+                        const url = signMap[a.key];
+                        const isImage = isImageFile(a.name);
+                        return (
+                          <li key={a.key} className="flex items-center gap-2 relative">
+                            {url ? (
+                              <div className="relative">
+                                <a 
+                                  className="underline text-blue-600 flex items-center gap-1" 
+                                  href={url} 
+                                  target="_blank" 
+                                  rel="noreferrer" 
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseEnter={() => isImage && setHoveredImage(url)}
+                                  onMouseLeave={() => setHoveredImage(null)}
+                                >
+                                  {isImage && (
+                                    <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                  )}
+                                  {a.name}
+                                </a>
+                                
+                                {/* 이미지 미리보기 툴팁 */}
+                                {hoveredImage === url && isImage && (
+                                  <div className="absolute z-50 top-full left-0 mt-2 p-2 bg-white border rounded-lg shadow-lg max-w-sm">
+                                    <img 
+                                      src={url} 
+                                      alt={a.name}
+                                      className="max-w-xs max-h-64 object-contain rounded"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = 'none';
+                                      }}
+                                    />
+                                    <p className="text-xs text-gray-600 mt-1 text-center">{a.name}</p>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <button onClick={(e) => { e.stopPropagation(); refreshLink(a.key); }} className="underline">링크 갱신</button>
+                            )}
+                            <span className="text-xs text-neutral-400">{formatSize(a.size)}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : <span className="text-neutral-400">-</span>}
+                </td>
+              </tr>
+            ))}
+            {filtered.length===0 && (
+              <tr><td colSpan={8} className="p-8 text-center text-neutral-400">데이터가 없어요. 하나 추가해볼까요? 😎</td></tr>
+            )}
+            </tbody>
+          </table>
+        </section>
+      ) : (
+        /* 인증되지 않은 사용자용 안내 메시지 */
+        <section className="rounded-2xl border bg-white shadow-sm p-8 text-center">
+          <div className="max-w-md mx-auto">
+            <div className="text-6xl mb-4">🔒</div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">로그인이 필요합니다</h3>
+            <p className="text-gray-600 mb-4">
+              데이터를 조회하려면 먼저 로그인해주세요.
+            </p>
+            <p className="text-sm text-gray-500">
+              사내 이메일로 로그인 링크를 발송하여 인증을 완료하시면<br/>
+              팀 공유 데이터에 접근할 수 있습니다.
+            </p>
+          </div>
+        </section>
+      )}
 
       <footer className="text-xs text-neutral-500">
         실시간 · 파일 업로드 · 팀 RLS 적용(멤버십은 콘솔에서 추가) · 작성/관리자만 수정/삭제
@@ -890,8 +973,49 @@ function AuthMini({ email }:{ email:string|null }) {
       alert('데모 모드: 로그인 기능이 비활성화되어 있습니다.');
       return;
     }
-    const { error } = await supabase.auth.signInWithOtp({ email: val });
-    if (error) alert(error.message); else alert('메일함에서 로그인 링크를 눌러주세요!');
+    
+    // 이메일 유효성 검사
+    if (!val || val.trim() === '') {
+      alert('이메일 주소를 입력해주세요.');
+      return;
+    }
+    
+    // 이메일 형식 검사
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(val.trim())) {
+      alert('올바른 이메일 형식을 입력해주세요. (예: user@company.com)');
+      return;
+    }
+    
+    try {
+      console.log('로그인 시도 중...', { email: val.trim() });
+      
+      const { error } = await supabase.auth.signInWithOtp({ 
+        email: val.trim(),
+        options: {
+          emailRedirectTo: window.location.origin
+        }
+      });
+      
+      if (error) {
+        console.error('로그인 오류:', error);
+        
+        // 구체적인 오류 메시지 제공
+        if (error.message.includes('email')) {
+          alert(`이메일 관련 오류: ${error.message}\n\nSupabase 설정을 확인해주세요.`);
+        } else if (error.message.includes('phone')) {
+          alert(`인증 설정 오류: ${error.message}\n\nSupabase에서 이메일 인증이 활성화되어 있는지 확인해주세요.`);
+        } else {
+          alert(`로그인 오류: ${error.message}`);
+        }
+      } else {
+        alert('메일함에서 로그인 링크를 눌러주세요!');
+        console.log('로그인 링크 발송 성공');
+      }
+    } catch (err) {
+      console.error('예상치 못한 오류:', err);
+      alert('로그인 중 예상치 못한 오류가 발생했습니다. 페이지를 새로고침 후 다시 시도해주세요.');
+    }
   }
   
   async function signOut(){ 
@@ -912,8 +1036,23 @@ function AuthMini({ email }:{ email:string|null }) {
         )}
       </div>
     : <div className="flex gap-2">
-        <input value={val} onChange={e=>setVal(e.target.value)} placeholder="사내 이메일"
-               className="h-9 border rounded px-2"/>
-        <button onClick={signIn} className="px-3 py-1 rounded bg-neutral-900 text-white">로그인 링크 발송</button>
+        <input 
+          value={val} 
+          onChange={e=>setVal(e.target.value)} 
+          placeholder="사내 이메일 (예: user@gsenc.com)"
+          className="h-9 border rounded px-2 w-64"
+          onKeyPress={(e) => {
+            if (e.key === 'Enter') {
+              signIn();
+            }
+          }}
+        />
+        <button 
+          onClick={signIn} 
+          className="px-3 py-1 rounded bg-neutral-900 text-white hover:bg-neutral-800 transition-colors"
+          disabled={!val.trim()}
+        >
+          로그인 링크 발송
+        </button>
       </div>;
 }
