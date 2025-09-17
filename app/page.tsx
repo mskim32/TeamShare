@@ -143,13 +143,26 @@ function SearchableDropdown({
 
 
 /** ====== Supabase(클라이언트) 한 파일 내 포함 ====== */
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://demo.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'demo-key';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://itwbtemiizrkztlowptm.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml0d2J0ZW1paXpya3p0bG93cHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2NDMwOTksImV4cCI6MjA3MzIxOTA5OX0.mL3pt0F5cuvVzjYkwtFPBJyJz2gez-WbL12PUUKE5q0';
 
 const supabase = createClient(
   supabaseUrl,
   supabaseKey,
-  { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
+  { 
+    auth: { 
+      persistSession: true, 
+      autoRefreshToken: true, 
+      detectSessionInUrl: true,
+      flowType: 'pkce'
+    },
+    // 배포 환경에서의 네트워크 설정
+    global: {
+      headers: {
+        'X-Client-Info': 'team-share-app'
+      }
+    }
+  }
 );
 
 type AttachmentMeta = { name: string; key: string; size?: number };
@@ -160,7 +173,7 @@ type Entry = {
   created_by:string; created_at:string; updated_at:string;
 };
 
-const TEAM_ID = process.env.NEXT_PUBLIC_TEAM_ID || 'demo-team';
+const TEAM_ID = process.env.NEXT_PUBLIC_TEAM_ID || 'team_92909J';
 
 const schema = z.object({
   category: z.string().min(1, '공종은 필수'),
@@ -256,6 +269,7 @@ export default function Page() {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [debugInfo, setDebugInfo] = useState<string>('');
   const [hoveredImage, setHoveredImage] = useState<string | null>(null);
 
   // 전체 페이지에서 클립보드 이벤트 감지
@@ -285,61 +299,258 @@ export default function Page() {
 
   // 로그인 감지
   useEffect(() => {
-    // 데모 모드에서는 기본 사용자 설정
-    if (supabaseUrl === 'https://demo.supabase.co') {
-      setUserEmail('demo@user.com');
-      return;
-    }
+    // 실제 Supabase 연결 사용
     
-    supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUserEmail(session?.user?.email ?? null);
+    // URL에서 매직 링크 토큰 처리
+    const handleMagicLink = async () => {
+      try {
+        // URL 파라미터에서 토큰 추출
+        const urlParams = new URLSearchParams(window.location.search);
+        const accessToken = urlParams.get('access_token');
+        const refreshToken = urlParams.get('refresh_token');
+        const code = urlParams.get('code');
+        const error = urlParams.get('error');
+        const errorCode = urlParams.get('error_code');
+        const errorDescription = urlParams.get('error_description');
+        
+        // 오류 처리
+        if (error) {
+          console.error('매직 링크 오류:', { error, errorCode, errorDescription });
+          setDebugInfo(`매직 링크 오류: ${errorCode} - ${errorDescription}`);
+          
+          // 사용자에게 친화적인 메시지 표시
+          if (errorCode === 'otp_expired') {
+            alert('로그인 링크가 만료되었습니다.\n\n새로운 로그인 링크를 발송해주세요.');
+          } else if (errorCode === 'access_denied') {
+            alert('로그인 링크 접근이 거부되었습니다.\n\n새로운 로그인 링크를 발송해주세요.');
+          } else {
+            alert(`로그인 오류가 발생했습니다: ${errorDescription}\n\n새로운 로그인 링크를 발송해주세요.`);
+          }
+          
+          // URL에서 오류 파라미터 제거
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return;
+        }
+        
+        if (code) {
+          console.log('매직 링크 코드 발견, 세션 교환 중...');
+          setDebugInfo('매직 링크 코드 처리 중...');
+          
+          // 코드로 세션 교환
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          
+          if (error) {
+            console.error('매직 링크 세션 교환 오류:', error);
+            setDebugInfo(`매직 링크 오류: ${error.message}`);
+          } else if (data.session?.user?.email) {
+            console.log('매직 링크 로그인 성공:', data.session.user.email);
+            setUserEmail(data.session.user.email);
+            setDebugInfo(`매직 링크 로그인 성공: ${data.session.user.email}`);
+            
+            // URL에서 코드 제거
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        } else if (accessToken && refreshToken) {
+          console.log('매직 링크 토큰 발견, 세션 설정 중...');
+          setDebugInfo('매직 링크 토큰 처리 중...');
+          
+          // 토큰으로 세션 설정
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+          
+          if (error) {
+            console.error('매직 링크 세션 설정 오류:', error);
+            setDebugInfo(`매직 링크 오류: ${error.message}`);
+          } else if (data.session?.user?.email) {
+            console.log('매직 링크 로그인 성공:', data.session.user.email);
+            setUserEmail(data.session.user.email);
+            setDebugInfo(`매직 링크 로그인 성공: ${data.session.user.email}`);
+            
+            // URL에서 토큰 제거
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        }
+      } catch (err) {
+        console.error('매직 링크 처리 중 오류:', err);
+        setDebugInfo('매직 링크 처리 오류');
+      }
+    };
+    
+    // 매직 링크 처리 및 세션 확인
+    const handleAuth = async () => {
+      try {
+        // 먼저 매직 링크 처리
+        await handleMagicLink();
+        
+        // URL에서 매직 링크 처리
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('세션 확인 오류:', error);
+          setDebugInfo(`세션 오류: ${error.message}`);
+          
+          // 배포 환경에서의 특별한 오류 처리
+          if (process.env.NODE_ENV === 'production') {
+            console.log('배포 환경에서 세션 오류 발생, 재시도 중...');
+            // 잠시 후 재시도
+            setTimeout(async () => {
+              try {
+                const { data: { session: retrySession } } = await supabase.auth.getSession();
+                if (retrySession?.user?.email) {
+                  setUserEmail(retrySession.user.email);
+                  setDebugInfo(`재시도 성공: ${retrySession.user.email}`);
+                }
+              } catch (retryErr) {
+                console.error('재시도 실패:', retryErr);
+              }
+            }, 2000);
+          }
+          return;
+        }
+        
+        if (session?.user?.email) {
+          console.log('세션 발견:', session.user.email);
+          setUserEmail(session.user.email);
+          setDebugInfo(`로그인됨: ${session.user.email}`);
+        } else {
+          console.log('세션 없음');
+          setUserEmail(null);
+          setDebugInfo('세션 없음');
+        }
+      } catch (err) {
+        console.error('세션 확인 중 오류:', err);
+        setUserEmail(null);
+        setDebugInfo('세션 확인 오류');
+        
+        // 배포 환경에서의 오류 복구 시도
+        if (process.env.NODE_ENV === 'production') {
+          console.log('배포 환경에서 오류 발생, 페이지 새로고침 권장');
+          setDebugInfo('세션 확인 오류 - 페이지 새로고침 권장');
+        }
+      }
+    };
+    
+    // 즉시 세션 확인
+    handleAuth();
+    
+    // 주기적으로 세션 확인 (매직 링크 로그인 후) - 배포 환경에서는 더 자주 확인
+    const intervalTime = process.env.NODE_ENV === 'production' ? 1000 : 2000;
+    const interval = setInterval(handleAuth, intervalTime);
+    
+    // 인증 상태 변경 감지
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('인증 상태 변경:', event, session?.user?.email);
+      
+      if (event === 'SIGNED_IN' && session?.user?.email) {
+        setUserEmail(session.user.email);
+        setDebugInfo(`로그인 성공: ${session.user.email}`);
+        console.log('로그인 성공:', session.user.email);
+        clearInterval(interval); // 로그인 성공 시 인터벌 정리
+        
+        // 배포 환경에서 로그인 성공 시 데이터 강제 로드
+        if (process.env.NODE_ENV === 'production') {
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setUserEmail(null);
+        setDebugInfo('로그아웃됨');
+        console.log('로그아웃됨');
+      } else if (event === 'TOKEN_REFRESHED' && session?.user?.email) {
+        setUserEmail(session.user.email);
+        setDebugInfo(`토큰 갱신: ${session.user.email}`);
+        console.log('토큰 갱신됨:', session.user.email);
+      }
     });
-    return () => sub.subscription.unsubscribe();
+    
+    return () => {
+      sub.subscription.unsubscribe();
+      clearInterval(interval);
+    };
   }, []);
 
   // 초기 로드 + 첨부 링크 서명 - 인증된 사용자만
   useEffect(() => {
-    // 데모 모드에서는 로컬 데이터 사용
-    if (supabaseUrl === 'https://demo.supabase.co') {
-      console.log('데모 모드: 로컬 데이터 사용');
-      return;
-    }
+    // 실제 Supabase 연결 사용
     
-    // 인증되지 않은 사용자는 데이터 로드하지 않음
-    if (!userEmail) {
-      console.log('인증되지 않은 사용자: 데이터 로드 건너뜀');
-      return;
-    }
+    // 인증 상태와 관계없이 데이터 로드 시도
+    console.log('데이터 로드 시도 중...', { userEmail, TEAM_ID });
     
     console.log('Supabase에서 데이터 로딩 중...', { supabaseUrl, TEAM_ID, userEmail });
     
-    supabase.from('check_entries')
-      .select('*')
-      .eq('team_id', TEAM_ID)
-      .order('created_at', { ascending: false })
-      .then(async ({ data, error }) => {
+    // 데이터 로드 함수
+    const loadData = async () => {
+      try {
+        console.log('데이터 로드 시도 중...', { userEmail, TEAM_ID, supabaseUrl });
+        
+        // 먼저 인증 없이 데이터 로드 시도 (RLS 우회)
+        const { data, error } = await supabase.from('check_entries')
+          .select('*')
+          .eq('team_id', TEAM_ID)
+          .order('created_at', { ascending: false });
+          
         if (error) {
           console.error('데이터 로드 오류:', error);
+          setDebugInfo(prev => prev + ` | 데이터 로드 오류: ${error.message}`);
+          
+          // RLS 오류인 경우 인증된 사용자로 다시 시도
+          if (error.message.includes('RLS') || error.message.includes('permission') || error.message.includes('JWT')) {
+            console.log('RLS 오류 감지, 인증된 사용자로 재시도...');
+            setDebugInfo(prev => prev + ' | RLS 오류, 재시도 중...');
+            
+            // 현재 세션 확인
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user?.email) {
+              console.log('인증된 사용자로 재시도:', session.user.email);
+              // 다시 시도
+              const { data: retryData, error: retryError } = await supabase.from('check_entries')
+                .select('*')
+                .eq('team_id', TEAM_ID)
+                .order('created_at', { ascending: false });
+              
+              if (retryError) {
+                console.error('재시도 오류:', retryError);
+                setDebugInfo(prev => prev + ` | 재시도 오류: ${retryError.message}`);
+              } else {
+                console.log('재시도 성공:', retryData);
+                const entries = retryData as Entry[];
+                setRows(entries);
+                setDebugInfo(prev => prev + ` | 재시도 성공: ${entries.length}개`);
+                const keys = entries.flatMap(e => e.attachments?.map(a=>a.key) ?? []);
+                const map = await createSignedUrls(keys);
+                setSignMap(map);
+              }
+            } else {
+              console.log('세션 없음, 인증 필요');
+              setDebugInfo(prev => prev + ' | 세션 없음, 인증 필요');
+            }
+          }
           return;
         }
+        
         console.log('로드된 데이터:', data);
         if (!data) return;
         const entries = data as Entry[];
         setRows(entries);
+        setDebugInfo(prev => prev + ` | 데이터 로드 성공: ${entries.length}개`);
         const keys = entries.flatMap(e => e.attachments?.map(a=>a.key) ?? []);
         const map = await createSignedUrls(keys);
         setSignMap(map);
-      });
+      } catch (err) {
+        console.error('데이터 로드 중 예상치 못한 오류:', err);
+        setDebugInfo(prev => prev + ` | 예상치 못한 오류: ${err}`);
+      }
+    };
+    
+    loadData();
   }, [userEmail]); // userEmail이 변경될 때마다 실행
 
   // 실시간 반영
   useEffect(() => {
-    // 데모 모드에서는 실시간 구독 비활성화
-    if (supabaseUrl === 'https://demo.supabase.co') {
-      console.log('데모 모드: 실시간 구독 비활성화');
-      return;
-    }
+    // 실제 Supabase 연결 사용
     
     // 인증되지 않은 사용자는 실시간 구독하지 않음
     if (!userEmail) {
@@ -507,49 +718,7 @@ export default function Page() {
     console.log('제출된 데이터:', values);
     console.log('item_type 값:', values.item_type);
     
-    // 데모 모드에서는 로컬 저장
-    if (supabaseUrl === 'https://demo.supabase.co') {
-      const newEntry: Entry = {
-        id: Date.now(),
-        team_id: TEAM_ID,
-        category: values.category,
-        item_type: values.item_type,
-        review_text: values.review_text,
-        shared_at: values.shared_at || null,
-        author_name: values.author_name || null,
-        note: values.note || null,
-        link_url: values.link_url || null,
-        attachments: [],
-        created_by: userEmail || 'demo@user.com',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      
-      if (isEditMode && editingEntry) {
-        // 수정 모드
-        setRows(prev => prev.map(r => r.id === editingEntry.id ? { ...newEntry, id: editingEntry.id } : r));
-        setEditingEntry(null);
-        setIsEditMode(false);
-      } else {
-        // 추가 모드
-        setRows(prev => [newEntry, ...prev]);
-      }
-      
-      reset({
-        category: '',
-        item_type: '외주계약',
-        review_text: '',
-        shared_at: '',
-        author_name: '',
-        note: '',
-        link_url: ''
-      });
-      setSelectedFiles([]);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      
-      alert(isEditMode ? '데모 모드: 데이터가 수정되었습니다.' : '데모 모드: 데이터가 로컬에만 저장됩니다.');
-      return;
-    }
+    // 실제 Supabase 데이터베이스에 저장
 
     let attachments: AttachmentMeta[] = [];
     if (selectedFiles.length > 0) {
@@ -674,9 +843,64 @@ export default function Page() {
             </svg>
             데이터 새로고침
           </button>
-          <AuthMini email={userEmail}/>
+          <AuthMini 
+            email={userEmail} 
+            setUserEmail={setUserEmail}
+            setDebugInfo={setDebugInfo}
+          />
         </div>
       </header>
+
+      {/* 디버그 정보 - 개발 환경에서만 표시 */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm">
+          <div className="font-medium text-yellow-800">디버그 정보:</div>
+          <div className="text-yellow-700">
+            <div>사용자 이메일: {userEmail || '없음'}</div>
+            <div>데이터 행 수: {rows.length}</div>
+            <div>상태: {debugInfo}</div>
+            <div>URL: {window.location.href}</div>
+            <div>Supabase URL: {supabaseUrl}</div>
+            <div>Supabase Key: {supabaseKey ? '설정됨' : '없음'}</div>
+            <div>Team ID: {TEAM_ID}</div>
+            <div>Environment: {process.env.NODE_ENV}</div>
+            <div className="mt-2">
+              <button 
+                onClick={() => window.location.reload()} 
+                className="px-2 py-1 bg-yellow-600 text-white rounded text-xs mr-2"
+              >
+                페이지 새로고침
+              </button>
+              <button 
+                onClick={async () => {
+                  const { data: { session } } = await supabase.auth.getSession();
+                  console.log('현재 세션:', session);
+                  alert(`현재 세션: ${session?.user?.email || '없음'}`);
+                }} 
+                className="px-2 py-1 bg-green-600 text-white rounded text-xs mr-2"
+              >
+                세션 확인
+              </button>
+              <button 
+                onClick={async () => {
+                  // 강제로 데이터 로드 시도
+                  try {
+                    const { data, error } = await supabase.from('check_entries').select('*').limit(5);
+                    console.log('강제 데이터 로드 결과:', { data, error });
+                    alert(`데이터 로드 결과: ${error ? error.message : `${data?.length || 0}개 행`}`);
+                  } catch (err) {
+                    console.error('강제 데이터 로드 오류:', err);
+                    alert(`데이터 로드 오류: ${err}`);
+                  }
+                }} 
+                className="px-2 py-1 bg-purple-600 text-white rounded text-xs"
+              >
+                데이터 로드 테스트
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 입력 폼 */}
       <section className="rounded-2xl border bg-white p-6 shadow-sm">
@@ -965,14 +1189,20 @@ export default function Page() {
 }
 
 /** ====== 간단 로그인(매직링크) ====== */
-function AuthMini({ email }:{ email:string|null }) {
+function AuthMini({ 
+  email, 
+  setUserEmail, 
+  setDebugInfo 
+}: { 
+  email: string | null;
+  setUserEmail: (email: string | null) => void;
+  setDebugInfo: (info: string) => void;
+}) {
   const [val,setVal] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastSentEmail, setLastSentEmail] = useState<string | null>(null);
   
   async function signIn() {
-    if (supabaseUrl === 'https://demo.supabase.co') {
-      alert('데모 모드: 로그인 기능이 비활성화되어 있습니다.');
-      return;
-    }
     
     // 이메일 유효성 검사
     if (!val || val.trim() === '') {
@@ -987,13 +1217,18 @@ function AuthMini({ email }:{ email:string|null }) {
       return;
     }
     
+    setIsLoading(true);
+    
     try {
       console.log('로그인 시도 중...', { email: val.trim() });
       
       const { error } = await supabase.auth.signInWithOtp({ 
         email: val.trim(),
         options: {
-          emailRedirectTo: window.location.origin
+          emailRedirectTo: process.env.NODE_ENV === 'production' 
+            ? 'https://team-share-chi.vercel.app' 
+            : window.location.origin,
+          shouldCreateUser: true
         }
       });
       
@@ -1005,54 +1240,176 @@ function AuthMini({ email }:{ email:string|null }) {
           alert(`이메일 관련 오류: ${error.message}\n\nSupabase 설정을 확인해주세요.`);
         } else if (error.message.includes('phone')) {
           alert(`인증 설정 오류: ${error.message}\n\nSupabase에서 이메일 인증이 활성화되어 있는지 확인해주세요.`);
+        } else if (error.message.includes('network') || error.message.includes('fetch')) {
+          alert(`네트워크 오류: ${error.message}\n\n인터넷 연결을 확인하고 다시 시도해주세요.`);
+        } else if (error.message.includes('rate limit')) {
+          alert(`요청 제한: ${error.message}\n\n잠시 후 다시 시도해주세요.`);
         } else {
-          alert(`로그인 오류: ${error.message}`);
+          alert(`로그인 오류: ${error.message}\n\n문제가 지속되면 페이지를 새로고침해주세요.`);
         }
       } else {
-        alert('메일함에서 로그인 링크를 눌러주세요!');
+        setLastSentEmail(val.trim());
+        alert(`로그인 링크가 발송되었습니다!\n\n📧 ${val.trim()} 메일함을 확인해주세요.\n\n⚠️ 주의사항:\n• 링크는 1시간 후 만료됩니다\n• 링크는 한 번만 사용 가능합니다\n• 스팸함도 확인해보세요\n• 링크를 복사하지 말고 직접 클릭하세요`);
         console.log('로그인 링크 발송 성공');
       }
     } catch (err) {
       console.error('예상치 못한 오류:', err);
       alert('로그인 중 예상치 못한 오류가 발생했습니다. 페이지를 새로고침 후 다시 시도해주세요.');
+    } finally {
+      setIsLoading(false);
     }
   }
   
   async function signOut(){ 
-    if (supabaseUrl === 'https://demo.supabase.co') {
-      alert('데모 모드: 로그아웃 기능이 비활성화되어 있습니다.');
-      return;
-    }
     await supabase.auth.signOut(); 
   }
+
+  // 세션 강제 새로고침
+  async function refreshSession() {
+    try {
+      // 강제로 세션 새로고침
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) {
+        console.error('세션 새로고침 오류:', error);
+        setDebugInfo(`세션 새로고침 오류: ${error.message}`);
+        return;
+      }
+      
+      if (session?.user?.email) {
+        console.log('세션 새로고침 성공:', session.user.email);
+        setUserEmail(session.user.email);
+        setDebugInfo(`세션 새로고침 성공: ${session.user.email}`);
+        
+        // 페이지 새로고침으로 데이터 로딩 강제 실행
+        window.location.reload();
+      } else {
+        console.log('세션 새로고침: 세션 없음');
+        setUserEmail(null);
+        setDebugInfo('세션 새로고침: 세션 없음');
+        
+        // 매직 링크 토큰/코드가 URL에 있는지 다시 확인
+        const urlParams = new URLSearchParams(window.location.search);
+        const accessToken = urlParams.get('access_token');
+        const refreshToken = urlParams.get('refresh_token');
+        const code = urlParams.get('code');
+        
+        if (code) {
+          console.log('URL에서 코드 재발견, 강제 세션 교환...');
+          setDebugInfo('URL 코드 재발견, 세션 교환 중...');
+          
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+          
+          if (error) {
+            console.error('강제 세션 교환 오류:', error);
+            setDebugInfo(`강제 세션 교환 오류: ${error.message}`);
+          } else if (data.session?.user?.email) {
+            console.log('강제 세션 교환 성공:', data.session.user.email);
+            setUserEmail(data.session.user.email);
+            setDebugInfo(`강제 세션 교환 성공: ${data.session.user.email}`);
+            
+            // URL에서 코드 제거
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            // 페이지 새로고침
+            setTimeout(() => window.location.reload(), 1000);
+          }
+        } else if (accessToken && refreshToken) {
+          console.log('URL에서 토큰 재발견, 강제 세션 설정...');
+          setDebugInfo('URL 토큰 재발견, 세션 설정 중...');
+          
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+          
+          if (error) {
+            console.error('강제 세션 설정 오류:', error);
+            setDebugInfo(`강제 세션 설정 오류: ${error.message}`);
+          } else if (data.session?.user?.email) {
+            console.log('강제 세션 설정 성공:', data.session.user.email);
+            setUserEmail(data.session.user.email);
+            setDebugInfo(`강제 세션 설정 성공: ${data.session.user.email}`);
+            
+            // URL에서 토큰 제거
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            // 페이지 새로고침
+            setTimeout(() => window.location.reload(), 1000);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('세션 새로고침 중 오류:', err);
+      setDebugInfo('세션 새로고침 중 오류');
+    }
+  }
   
-  return email
-    ? <div className="flex items-center gap-3 text-sm">
-        <span className="opacity-70">{email}</span>
-        {supabaseUrl === 'https://demo.supabase.co' ? (
-          <span className="px-3 py-1 rounded bg-blue-100 text-blue-800 text-xs">데모 모드</span>
-        ) : (
-          <button onClick={signOut} className="px-3 py-1 rounded bg-neutral-900 text-white">로그아웃</button>
+  return email ? (
+    <div className="flex items-center gap-3 text-sm">
+      <span className="opacity-70">{email}</span>
+      <button onClick={refreshSession} className="px-3 py-1 rounded bg-blue-600 text-white text-xs">세션 새로고침</button>
+      <button onClick={signOut} className="px-3 py-1 rounded bg-neutral-900 text-white">로그아웃</button>
+    </div>
+  ) : (
+    <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          <input 
+            value={val} 
+            onChange={e=>setVal(e.target.value)} 
+            placeholder="사내 이메일 (예: user@gsenc.com)"
+            className="h-9 border rounded px-2 w-64"
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && !isLoading) {
+                signIn();
+              }
+            }}
+            disabled={isLoading}
+          />
+          <button 
+            onClick={signIn} 
+            className="px-3 py-1 rounded bg-neutral-900 text-white hover:bg-neutral-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!val.trim() || isLoading}
+          >
+            {isLoading ? '발송 중...' : '로그인 링크 발송'}
+          </button>
+        </div>
+        
+        {lastSentEmail && (
+          <div className="text-xs text-gray-600 bg-blue-50 p-2 rounded border">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <span>링크가 <strong>{lastSentEmail}</strong>로 발송되었습니다</span>
+            </div>
+            <div className="mt-1 text-gray-500">
+              메일함을 확인하고 링크를 클릭하세요. 링크가 작동하지 않으면 다시 발송해주세요.
+            </div>
+            {process.env.NODE_ENV === 'production' && (
+              <div className="mt-2 flex gap-2">
+                <button 
+                  onClick={() => window.location.reload()} 
+                  className="px-2 py-1 bg-blue-600 text-white rounded text-xs"
+                >
+                  페이지 새로고침
+                </button>
+                <button 
+                  onClick={async () => {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (session?.user?.email) {
+                      alert(`이미 로그인되어 있습니다: ${session.user.email}`);
+                    } else {
+                      alert('아직 로그인되지 않았습니다. 메일함의 링크를 클릭해주세요.');
+                    }
+                  }} 
+                  className="px-2 py-1 bg-green-600 text-white rounded text-xs"
+                >
+                  로그인 상태 확인
+                </button>
+              </div>
+            )}
+          </div>
         )}
-      </div>
-    : <div className="flex gap-2">
-        <input 
-          value={val} 
-          onChange={e=>setVal(e.target.value)} 
-          placeholder="사내 이메일 (예: user@gsenc.com)"
-          className="h-9 border rounded px-2 w-64"
-          onKeyPress={(e) => {
-            if (e.key === 'Enter') {
-              signIn();
-            }
-          }}
-        />
-        <button 
-          onClick={signIn} 
-          className="px-3 py-1 rounded bg-neutral-900 text-white hover:bg-neutral-800 transition-colors"
-          disabled={!val.trim()}
-        >
-          로그인 링크 발송
-        </button>
-      </div>;
+    </div>
+  );
 }
