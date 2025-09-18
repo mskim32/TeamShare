@@ -59,6 +59,7 @@ Vercel에서 배포할 때는 다음 환경 변수들을 설정해야 합니다:
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 프로젝트 URL | `https://your-project.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 익명 키 | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` |
 | `NEXT_PUBLIC_TEAM_ID` | 팀 식별자 | `team_92909J-B01` |
+| `NEXT_PUBLIC_SITE_URL` | 배포된 사이트 URL | `https://team-share-chi.vercel.app` |
 
 3. **Supabase 대시보드**에서 **Authentication** → **URL Configuration**에서 다음 URL을 추가:
    - **Site URL**: `https://your-app.vercel.app`

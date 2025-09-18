@@ -1243,7 +1243,7 @@ function AuthMini({
       const { error } = await supabase.auth.signInWithOtp({ 
         email: val.trim(),
         options: {
-          emailRedirectTo: window.location.origin,
+          emailRedirectTo: process.env.NEXT_PUBLIC_SITE_URL || window.location.origin,
           shouldCreateUser: true
         }
       });
