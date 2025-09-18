@@ -143,12 +143,17 @@ function SearchableDropdown({
 
 
 /** ====== Supabase(클라이언트) 한 파일 내 포함 ====== */
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://itwbtemiizrkztlowptm.supabase.co';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml0d2J0ZW1paXpya3p0bG93cHRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc2NDMwOTksImV4cCI6MjA3MzIxOTA5OX0.mL3pt0F5cuvVzjYkwtFPBJyJz2gez-WbL12PUUKE5q0';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+// 환경 변수가 없으면 오류 표시
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Supabase 환경 변수가 설정되지 않았습니다. NEXT_PUBLIC_SUPABASE_URL과 NEXT_PUBLIC_SUPABASE_ANON_KEY를 확인해주세요.');
+}
 
 const supabase = createClient(
-  supabaseUrl,
-  supabaseKey,
+  supabaseUrl || '',
+  supabaseKey || '',
   { 
     auth: { 
       persistSession: true, 
@@ -260,6 +265,30 @@ function inputCls(err?: any) {
 /** ==================== 메인 페이지 ==================== */
 export default function Page() {
   const [userEmail, setUserEmail] = useState<string|null>(null);
+  
+  // 환경 변수 확인
+  if (!supabaseUrl || !supabaseKey) {
+    return (
+      <main className="min-h-screen bg-gray-50 p-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+            <div className="text-red-600 text-lg font-semibold mb-2">⚠️ 환경 변수 설정 오류</div>
+            <div className="text-red-700 mb-4">
+              Supabase 환경 변수가 설정되지 않았습니다.
+            </div>
+            <div className="text-sm text-red-600 bg-red-100 p-3 rounded">
+              <div className="font-medium mb-2">Vercel 배포 시 필요한 환경 변수:</div>
+              <div className="text-left space-y-1">
+                <div>• NEXT_PUBLIC_SUPABASE_URL</div>
+                <div>• NEXT_PUBLIC_SUPABASE_ANON_KEY</div>
+                <div>• NEXT_PUBLIC_TEAM_ID</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
   const [rows, setRows] = useState<Entry[]>([]);
   const [q, setQ] = useState('');  // 검색어
   const [typeFilter, setTypeFilter] = useState<'전체'|'외주계약'|'외주입찰'|'견적조건'|'내역검토'|'품의/보고'|'기타공지'>('전체');
@@ -424,20 +453,16 @@ export default function Page() {
         setUserEmail(null);
         setDebugInfo('세션 확인 오류');
         
-        // 배포 환경에서의 오류 복구 시도
-        if (process.env.NODE_ENV === 'production') {
-          console.log('배포 환경에서 오류 발생, 페이지 새로고침 권장');
-          setDebugInfo('세션 확인 오류 - 페이지 새로고침 권장');
-        }
+        // 오류 발생 시 로그만 기록
+        console.log('세션 확인 중 오류 발생');
       }
     };
     
     // 즉시 세션 확인
     handleAuth();
     
-    // 주기적으로 세션 확인 (매직 링크 로그인 후) - 배포 환경에서는 더 자주 확인
-    const intervalTime = process.env.NODE_ENV === 'production' ? 1000 : 2000;
-    const interval = setInterval(handleAuth, intervalTime);
+    // 주기적으로 세션 확인 (매직 링크 로그인 후)
+    const interval = setInterval(handleAuth, 2000);
     
     // 인증 상태 변경 감지
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -448,13 +473,6 @@ export default function Page() {
         setDebugInfo(`로그인 성공: ${session.user.email}`);
         console.log('로그인 성공:', session.user.email);
         clearInterval(interval); // 로그인 성공 시 인터벌 정리
-        
-        // 배포 환경에서 로그인 성공 시 데이터 강제 로드
-        if (process.env.NODE_ENV === 'production') {
-          setTimeout(() => {
-            window.location.reload();
-          }, 1000);
-        }
       } else if (event === 'SIGNED_OUT') {
         setUserEmail(null);
         setDebugInfo('로그아웃됨');
@@ -1225,9 +1243,7 @@ function AuthMini({
       const { error } = await supabase.auth.signInWithOtp({ 
         email: val.trim(),
         options: {
-          emailRedirectTo: process.env.NODE_ENV === 'production' 
-            ? 'https://team-share-chi.vercel.app' 
-            : window.location.origin,
+          emailRedirectTo: window.location.origin,
           shouldCreateUser: true
         }
       });
