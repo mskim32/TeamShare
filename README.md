@@ -37,7 +37,34 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
 NEXT_PUBLIC_TEAM_ID=your_team_id_here
 ```
 
-### 3. Supabase 설정
+### 3. 환경 변수 설정
+
+#### 로컬 개발 환경
+`env.example` 파일을 참고하여 `.env.local` 파일을 생성하고 다음 값들을 설정하세요:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+NEXT_PUBLIC_TEAM_ID=your_team_id_here
+```
+
+#### Vercel 배포 환경
+Vercel에서 배포할 때는 다음 환경 변수들을 설정해야 합니다:
+
+1. **Vercel 대시보드** → **프로젝트 선택** → **Settings** → **Environment Variables**
+2. 다음 변수들을 추가:
+
+| 변수명 | 설명 | 예시 |
+|--------|------|------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase 프로젝트 URL | `https://your-project.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 익명 키 | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` |
+| `NEXT_PUBLIC_TEAM_ID` | 팀 식별자 | `team_92909J-B01` |
+
+3. **Supabase 대시보드**에서 **Authentication** → **URL Configuration**에서 다음 URL을 추가:
+   - **Site URL**: `https://your-app.vercel.app`
+   - **Redirect URLs**: `https://your-app.vercel.app/**`
+
+### 4. Supabase 설정
 
 #### 데이터베이스 테이블 생성
 
